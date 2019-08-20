@@ -3,8 +3,6 @@ import grid
 import display
 import adjacency_manager
 
-s = z3.Solver()
-
 """
 givens = [
   [7, 0, 3,  0, 0, 0,  0, 0, 6],
@@ -33,7 +31,8 @@ givens = [
   "         ",
   "3 4    6 "]
 
-g = grid.Grid(9, 9)
+s = z3.Solver()
+g = grid.Grid(width=9, height=9)
 
 # TK: init_edges, init_points
 # creates cell.given, cell.var
@@ -65,7 +64,7 @@ def ban_model(solver, model):
 
 ban_model(s, m)
 
-print s.check()  # should be z3.unsat
+print(s.check())  # should be z3.unsat
 
 def cell_draw(ctx):
     ctx.fill(0.9, 0.9, 1, 1)
