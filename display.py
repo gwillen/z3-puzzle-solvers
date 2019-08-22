@@ -40,7 +40,10 @@ class PointContext(object):
 
     @property
     def val(self):
-        return str(self.model[self.point.var])
+        if model is not none:
+            return str(self.model[self.point.var])
+        else:
+            return ""
 
     @property
     def x0(self):
@@ -84,7 +87,10 @@ class EdgeContext(object):
 
     @property
     def val(self):
-        return str(self.model[self.edge.var])
+        if model is not None:
+            return str(self.model[self.edge.var])
+        else:
+            return ""
 
     @property
     def x0(self):
@@ -144,7 +150,10 @@ class CellContext(object):
 
     @property
     def val(self):
-        return str(self.model[self.cell.var])
+        if self.model is not None:
+            return str(self.model[self.cell.var])
+        else:
+            return ""
 
     @property
     def x0(self):
@@ -225,20 +234,25 @@ def draw_grid(grid, model, scale,
         for point in grid.points:
             point_ctx = PointContext(surface, point, model, scale)
             point_fn(point_ctx)
-    show_surface(surface)
+    return surface
+    #XXX show_surface(surface)
 
 def draw_text(ctx, x, y, t):
     _, _, w, h, dx, dy = ctx.text_extents(t)
     ctx.move_to(x - w/2, y + h/2)
     ctx.show_text(t)
 
-def input(events):
+def process_events(events):
     for event in events:
         if event.type == pygame.QUIT:
             sys.exit(0)
         elif event.type == pygame.KEYDOWN:
             if event.key == 27:
                 sys.exit(0)
+        if event.type == pygame.MOUSEBUTTONUP:
+            print("mouse up: " + str(event.pos))
+        else:
+            print(event)
 
 def get_surface(width, height):
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
@@ -257,15 +271,15 @@ def show_surface(surface):
     pygame.display.set_mode((width, height))
 
     screen = pygame.display.get_surface()
-    buf = surface.get_data()
-
-    # TODO: color management is a little funny, probably due to pixel
-    # formats here. In a bunch of places we need to call rgb functions
-    # but pass things in in g, b, r order.
-    image = pygame.image.frombuffer(buf, (width, height), "RGBA")
-    # Tranfer to Screen
-    screen.blit(image, (0, 0))
-    pygame.display.flip()
 
     while True:
-        input(pygame.event.get())
+        buf = surface.get_data()
+        # TODO: color management is a little funny, probably due to pixel
+        # formats here. In a bunch of places we need to call rgb functions
+        # but pass things in in g, b, r order.
+        image = pygame.image.frombuffer(buf, (width, height), "RGBA")
+        # Tranfer to Screen
+        screen.blit(image, (0, 0))
+        pygame.display.flip()
+
+        process_events(pygame.event.get())
