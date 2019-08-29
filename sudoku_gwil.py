@@ -1,6 +1,7 @@
 import sys
 import z3
 import pygame
+from solver import *
 import grid
 import display
 import adjacency_manager
@@ -39,41 +40,27 @@ g = None
 def solve_sudoku(givens):
     global m, g
 
-    s = z3.Solver()
+    clear_context()
     g = grid.Grid(width=9, height=9)
+
+    def init_cell(cell):
+        var =  IntRangeVar(cell.name, min=1, max=9)
+        if cell.given:
+            # would be nice if we could do this automatically but "given" can mean so many things
+            # XXX eww, abstraction break.
+            ASSERT(var.var == cell.given)
+        return var
 
     # TK: init_edges, init_points
     # creates cell.given, cell.var
-    g.init_cells(givens, lambda cell: z3.Int(cell.name))
+    g.init_cells(givens, init_cell)
 
-    for cell in g.cells:
-        # would be nice if we could say: cell.var.constrain_range(1, 9) (inclusive?)
-        # or even specify the range for all cells at once, usually it's the same, instead of z3.Int maybe ourthing.numrange_inclusive(1, 9)
-        s.add(cell.var >= 1)
-        s.add(cell.var <= 9)
-        if cell.given:
-            # could automate this if givens are cell vars? but how to indicate?
-            s.add(cell.var == cell.given)
+    for group in g.cell_rows() + g.cell_cols() + g.cell_boxes(3, 3):
+        DISTINCT([cell.var for cell in group])
 
-    for row in g.cell_rows():
-        s.add(z3.Distinct([cell.var for cell in row]))
-
-    for col in g.cell_cols():
-        s.add(z3.Distinct([cell.var for cell in col]))
-
-    for box in g.cell_boxes(3, 3):
-        s.add(z3.Distinct([cell.var for cell in box]))
-
-    def ban_model(solver, model):
-        solver.add(z3.Or([var() != model[var] for var in model]))
-
-    if s.check() == z3.sat:
-        m = s.model()
-        ban_model(s, m)
-    else:
-        m = None
-
-    return s.check() == z3.unsat  # indicates unique solution
+    m = get_model()
+    next_model()
+    return not solvable()
 
 def cell_draw(ctx):
     ctx.fill(0.9, 0.9, 1, 1)
@@ -108,9 +95,8 @@ def process_events(events):
                 sys.exit(0)
         if event.type == pygame.MOUSEBUTTONUP:
             print("mouse up: " + str(event.pos))
-            # XXX haxxxx... also x and y are swapped why???
-            click_y = (event.pos[0] - 35) // 64
-            click_x = (event.pos[1] - 35) // 64
+            click_x = (event.pos[0] - 35) // 64
+            click_y = (event.pos[1] - 35) // 64
             result = True
         else:
             print(event)
@@ -140,5 +126,5 @@ while True:
     pygame.display.flip()
 
     if process_events(pygame.event.get()):
-        givens[click_x][click_y] = (givens[click_x][click_y] + 1) % 10
+        givens[click_y][click_x] = (givens[click_y][click_x] + 1) % 10
         unique = solve_sudoku(givens)

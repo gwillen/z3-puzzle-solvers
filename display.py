@@ -151,7 +151,9 @@ class CellContext(object):
     @property
     def val(self):
         if self.model is not None:
-            return str(self.model[self.cell.var])
+            # XXX cell.var.var (to get underlying z3 var) is an abstraction break
+            # in fact, so is dealing with the gross z3 model object directly
+            return str(self.model[self.cell.var.var])
         else:
             return ""
 

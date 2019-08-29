@@ -1,186 +1,94 @@
-import z3
-import enum
+from typing import Dict, List, Union, Optional, Tuple, cast
 
-class ObjType(enum.Enum):
-    CELL  = 1
-    EDGE  = 2
-    POINT = 3
-# super rude, omg
-locals().update(ObjType.__members__)
-
-class Dir(enum.Enum):
-    UP      = 1
-    DOWN    = 2
-    LEFT    = 3
-    RIGHT   = 4
-# super rude, omg
-locals().update(Dir.__members__)
-
-VertDir = [UP, DOWN]
-HorzDir = [LEFT, RIGHT]
-
-class Orientation(enum.Enum):
-    HORZ = 1
-    VERT = 2
-# super rude, omg
-locals().update(Orientation.__members__)
-
-dir_preposition = {
-    Dir.UP: "above",
-    Dir.DOWN: "below",
-    Dir.LEFT: "left",
-    Dir.RIGHT: "right"
-}
-
-opposite_dir = {
-    Dir.UP:    Dir.DOWN,
-    Dir.DOWN:  Dir.UP,
-    Dir.LEFT:  Dir.RIGHT,
-    Dir.RIGHT: Dir.LEFT
-}
-
-# (dx, dy), origin top left
-dir_deltas = {
-    Dir.UP:    (0, -1),
-    Dir.DOWN:  (0, 1),
-    Dir.LEFT:  (-1, 0),
-    Dir.RIGHT: (1, 0)
-}
-
-# For synthesizing convenience functions "edge_above", "cell_left" etc.
-#def neighbor_prop(types, d):
-#    def get_neighbor(self):
-#        return getattr(self, "neighbor_"+types).get(d)
-#    def set_neighbor(self, v):
-#        getattr(self, "neighbor_"+types)[d] = v
-#    return(property(get_neighbor, set_neighbor))
-
-#XXX broken: def distant_neighbor_prop(types, d):
-#    def get_distant_neighbor(self, distance):
-#        return getattr(self, "get_neighbor_"+type+"_at")()
+import solver
+from grid_constants import *
 
 class BoardObj(object):
-    def __init__(self, name):
-        self.neighbors = {}
+    def __init__(self, name: str):
+        self.neighbors: Dict[ObjType, Dict[Dir, BoardObj]] = {}
         self.name = name
 
-    def obj_at(self, obj_type, direction, dist):
+    def obj_at(self, obj_type: ObjType, direction: Dir, dist: int) -> 'Optional[BoardObj]':
         if obj_type not in ObjType:
-            raise Error("Bad objtype: " + str(obj_type))
+            raise ValueError("Bad objtype: " + str(obj_type))
         if direction not in Dir:
-            raise Error("Bad direction: " + str(direction))
+            raise ValueError("Bad direction: " + str(direction))
         if dist < 0:
             # Let's just be nice and fix it.
             return self.obj_at(obj_type, opposite_dir[direction], -dist)
         elif dist == 0:
             return self
+        elif self.neighbors[obj_type][direction]:
+            return self.neighbors[obj_type][direction].obj_at(obj_type, direction, dist-1)
         else:
-            return neighbors[obj_type][direction].obj_at(obj_type, direction, dist-1)
+            return None
 
-    def obj(self, obj_type, direction):
+    def obj(self, obj_type: ObjType, direction: Dir) -> 'Optional[BoardObj]':
         return self.obj_at(obj_type, direction, 1)
 
-    def cell_at(self, direction, dist):
-        return obj_at(ObjType.CELL, direction, dist)
-    def edge_at(self, direction, dist):
-        return obj_at(ObjType.EDGE, direction, dist)
-    def point_at(self, direction, dist):
-        return obj_at(ObjType.POINT, direction, dist)
+    def cell_at(self, direction: Dir, dist: int) -> 'Optional[Cell]':
+        return cast(Cell, self.obj_at(ObjType.CELL, direction, dist))
+    def edge_at(self, direction: Dir, dist: int) -> 'Optional[Edge]':
+        return cast(Edge, self.obj_at(ObjType.EDGE, direction, dist))
+    def point_at(self, direction: Dir, dist: int) -> 'Optional[Point]':
+        return cast(Point, self.obj_at(ObjType.POINT, direction, dist))
 
-    def cell(self, direction):
-        return adj_obj(ObjType.CELL, direction)
-    def edge(self, direction):
-        return adj_obj(ObjType.EDGE, direction)
-    def point(self, direction):
-        return adj_obj(ObjType.POINT, direction)
+    def cells(self) -> 'List[Cell]':
+        return cast(List[Cell], self.neighbors[ObjType.CELL].values())
+    def edges(self) -> 'List[Edge]':
+        return cast(List[Edge], self.neighbors[ObjType.EDGE].values())
+    def points(self) -> 'List[Point]':
+        return cast(List[Point], self.neighbors[ObjType.POINT].values())
 
 class Cell(BoardObj):
-    def __init__(self, name, *, x, y):
+    def __init__(self, name: str, *, x: int, y: int):
         super().__init__(name)
         self.x = x
         self.y = y
         self.neighbors = { ObjType.EDGE: {}, ObjType.CELL: {} }
-        self.edge = self.neighbors[ObjType.EDGE]
-        self.cell = self.neighbors[ObjType.CELL]
+        self.edge = cast(Dict[Dir, Optional[Edge]], self.neighbors[ObjType.EDGE])
+        self.cell = cast(Dict[Dir, Optional[Cell]], self.neighbors[ObjType.CELL])
 
-    def edges(self):
-        return self.edge.values()
-
-    def cells(self):
-        return self.cell.values()
-
-    def __str__(self):
+    def __str__(self) -> str:
         return "Cell({} @ {}, {})".format(self.name, self.x, self.y)
 
-#for direction in Dir:
-#    setattr(Cell,
-#        "edge_"+dir_preposition[direction],
-#        neighbor_prop("edges", direction))
-#    setattr(Cell,
-#        "cell_"+dir_preposition[direction],
-#        neighbor_prop("cells", direction))
-
 class Edge(BoardObj):
-    def __init__(self, name, *, orientation, x, y):
+    def __init__(self, name: str, *, orientation: Orientation, x: int, y: int):
         super().__init__(name)
         self.orientation = orientation
         self.x = x
         self.y = y
         self.neighbors = { ObjType.CELL: {}, ObjType.EDGE: {}, ObjType.POINT: {} }
-        self.edge = self.neighbors[ObjType.EDGE]
-        self.cell = self.neighbors[ObjType.CELL]
-        self.point = self.neighbors[ObjType.POINT]
+        self.edge = cast(Dict[Dir, Optional[Edge]], self.neighbors[ObjType.EDGE])
+        self.cell = cast(Dict[Dir, Optional[Cell]], self.neighbors[ObjType.CELL])
+        self.point = cast(Dict[Dir, Optional[Point]], self.neighbors[ObjType.POINT])
 
-    def cells(self):
-        return self.neighbors[ObjType.CELL].values()
-
-    def points(self):
-        return self.neighbors[ObjType.POINT].values()
-
-    def __str__(self):
+    def __str__(self) -> str:
         return "Edge/{}({})".format(self.orientation, self.name)
 
-# This doesn't distinguish vertical from horizontal edges as the old code did.
-#for direction in Dir:
-#    setattr(Edge,
-#        "edge_"+dir_preposition[direction],
-#        neighbor_prop("edges", direction))
-#    setattr(Edge,
-#        "cell_"+dir_preposition[direction],
-#        neighbor_prop("cells", direction))
-#    setattr(Edge,
-#        "point"+dir_preposition[direction],
-#        neighbor_prop("points", direction))
-
 class Point(BoardObj):
-    def __init__(self, name, *, x, y):
+    def __init__(self, name: str, *, x: int, y: int):
         super().__init__(name)
         self.x = x
         self.y = y
         self.neighbors = { ObjType.EDGE: {}, ObjType.POINT: {} }
-        self.edge = self.neighbors[ObjType.EDGE]
-        self.point = self.neighbors[ObjType.POINT]
+        self.edge = cast(Dict[Dir, Optional[Edge]], self.neighbors[ObjType.EDGE])
+        self.point = cast(Dict[Dir, Optional[Point]], self.neighbors[ObjType.POINT])
 
-    def edges(self):
-        return self.edge.values()
-
-    def points(self):
-        return self.point.values()
-
-    def horiz_edge(self, offs):
+    def horiz_edge(self, offs: int) -> Optional[Edge]:
         assert offs != 0
         return self.edge_at(Dir.RIGHT, offs)
 
-    def vert_edge(self, offs):
+    def vert_edge(self, offs: int) -> Optional[Edge]:
         assert offs != 0
         return self.edge_at(Dir.DOWN, offs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "Point({} @ {}, {})".format(self.name, self.x, self.y)
 
 class Grid(object):
     # NB: width and height are in cells
-    def __init__(self, *, width, height, basename=''):
+    def __init__(self, *, width: int, height: int, basename: str = ''):
         self.width = width
         self.height = height
 
@@ -207,9 +115,9 @@ class Grid(object):
         for x in range(width+1):
             for y in range(height):
                 name = '{}vert_{},{}'.format(basename, x, y)
-                c = Edge(name, orientation=Orientation.VERT, x=x, y=y)
-                verts.append(c)
-                vert_array[x,y] = c
+                e = Edge(name, orientation=Orientation.VERT, x=x, y=y)
+                verts.append(e)
+                vert_array[x,y] = e
 
         self.vert_array = vert_array
         self.verts = verts
@@ -217,9 +125,9 @@ class Grid(object):
         for x in range(width):
             for y in range(height+1):
                 name = '{}horiz_{},{}'.format(basename, x, y)
-                c = Edge(name, orientation=Orientation.HORZ, x=x, y=y)
-                horizs.append(c)
-                horiz_array[x,y] = c
+                e = Edge(name, orientation=Orientation.HORZ, x=x, y=y)
+                horizs.append(e)
+                horiz_array[x,y] = e
 
         self.horiz_array = horiz_array
         self.horizs = horizs
@@ -227,9 +135,9 @@ class Grid(object):
         for x in range(width+1):
             for y in range(height+1):
                 name = '{}point_{},{}'.format(basename, x, y)
-                c = Point(name, x=x, y=y)
-                points.append(c)
-                point_array[x, y] = c
+                p = Point(name, x=x, y=y)
+                points.append(p)
+                point_array[x, y] = p
 
         self.point_array = point_array
         self.points = points
@@ -280,26 +188,26 @@ class Grid(object):
                     (dx, dy) = dir_deltas[d]
                     p.point[d] = self.point(x + dx, y + dy)
 
-    def cell(self, x, y):
+    def cell(self, x: int, y: int) -> Optional[Cell]:
         return self.cell_array.get((x, y))
 
-    def horiz(self, x, y):
+    def horiz(self, x: int, y: int) -> Optional[Edge]:
         return self.horiz_array.get((x, y))
 
-    def vert(self, x, y):
+    def vert(self, x: int, y: int) -> Optional[Edge]:
         return self.vert_array.get((x, y))
 
-    def point(self, x, y):
+    def point(self, x: int, y: int) -> Optional[Point]:
         return self.point_array.get((x, y))
 
-    def cell_rows(self):
+    def cell_rows(self) -> List[List[Cell]]:
         return [[self.cell_array[x, y] for x in range(0, self.height)] for y in range(0, self.width)]
 
-    def cell_cols(self):
+    def cell_cols(self) -> List[List[Cell]]:
         return [[self.cell_array[x, y] for y in range(0, self.height)] for x in range(0, self.width)]
 
     # Parameters are box SIZE not box COUNT!
-    def cell_boxes(self, box_height, box_width):
+    def cell_boxes(self, box_height: int, box_width: int) -> List[List[Cell]]:
         if ((box_height < 1 or box_height > self.height or self.height % box_height != 0) or
             (box_width  < 1 or box_width  > self.width  or self.width  % box_width  != 0)):
             raise Exception("Box size rows/cols must divide board height/width")
@@ -312,10 +220,10 @@ class Grid(object):
                 for inner_y in range(0, box_height) for inner_x in range(0, box_width)]
                     for box_y in range(0, box_rows) for box_x in range(0, box_cols)]
 
-    def cells_locs(self):
+    def cells_locs(self) -> List[Tuple[Cell, int, int]]:
         return [(self.cell(x, y), x, y) for y in range(0, self.height) for x in range(0, self.width)]
 
-    def format_given_char(self, c):
+    def format_given_char(self, c: str) -> Union[int, str]:
         if (c >= '0' and c <= '9'):
             return ord(c) - ord('0')
         if (c == ' '):
@@ -355,25 +263,3 @@ class Grid(object):
     @property
     def edges(self):
         return self.horizs + self.verts
-
-# g = EdgedGrid(10, 10)
-
-# s = Solver()
-
-# for c in g.cells:
-#     s.add(c.var >= 0)
-#     s.add(c.var < 10)
-
-# #for x in range(10):
-# #    s.add(Distinct([g.cell(x, y).var for y in range(10)]))
-# #    s.add(Distinct([g.cell(y, x).var for y in range(10)]))
-
-# s.check()
-# m = s.model()
-# for x in list(m):
-#     print m[x]
-# for y in range(10):
-#     r = ""
-#     for x in range(10):
-#         r += str(m[g.cell(x, y).var].as_long())
-#     print r
